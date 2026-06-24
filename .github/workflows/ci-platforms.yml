@@ -1,0 +1,92 @@
+# Multi-platform Rust build CI for forks / verification.
+# Builds the same 5 targets as the Release `build-rust` job, without
+# Apple signing/notarization (those require Vercel org secrets).
+
+name: CI Platforms
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+jobs:
+  build-rust:
+    name: "Build ${{ matrix.settings.target }}"
+    strategy:
+      fail-fast: false
+      matrix:
+        settings:
+          - host: macos-14
+            target: "x86_64-apple-darwin"
+          - host: macos-14
+            target: "aarch64-apple-darwin"
+          - host: ubuntu-24.04
+            target: "x86_64-unknown-linux-musl"
+            setup: "sudo apt-get update && sudo apt-get install -y build-essential clang lldb llvm libclang-dev curl musl-tools sudo unzip"
+          - host: ubuntu-24.04
+            target: "aarch64-unknown-linux-musl"
+            # clang sees glibc 2.39 headers when compiling aws-lc-sys C code,
+            # but the final static link uses musl, which only exports the base symbols.
+            rust-build-env: 'CC_aarch64_unknown_linux_musl=clang AR_aarch64_unknown_linux_musl=llvm-ar RUSTFLAGS="-Clink-self-contained=yes -Clinker=rust-lld -Clink-arg=--defsym=__isoc23_sscanf=sscanf -Clink-arg=--defsym=__isoc23_strtol=strtol"'
+            setup: "sudo apt-get update && sudo apt-get install -y build-essential musl-tools clang llvm gcc-aarch64-linux-gnu binutils-aarch64-linux-gnu"
+          - host: windows-2022
+            target: x86_64-pc-windows-msvc
+    runs-on: ${{ matrix.settings.host }}
+    timeout-minutes: 60
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          filter: blob:none
+          persist-credentials: false
+
+      - name: Setup Protoc
+        uses: ./.github/actions/setup-protoc
+        with:
+          version: "26.x"
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Setup capnproto
+        uses: ./.github/actions/setup-capnproto
+
+      - name: Rust Setup
+        uses: actions-rust-lang/setup-rust-toolchain@2b1f5e9b395427c92ee4e3331786ca3c37afe2d7 # v1
+        with:
+          target: ${{ matrix.settings.target }}
+          rustflags: ""
+          cache: false
+
+      - name: Build Setup
+        if: ${{ matrix.settings.setup }}
+        run: ${{ matrix.settings.setup }}
+
+      - name: Build
+        run: ${{ matrix.settings.rust-build-env }} cargo build --profile release-turborepo -p turbo --target ${{ matrix.settings.target }}
+
+      - name: Upload Artifacts
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: turbo-${{ matrix.settings.target }}
+          path: target/${{ matrix.settings.target }}/release-turborepo/turbo*
+
+  summary:
+    name: All Platforms Summary
+    runs-on: ubuntu-latest
+    if: always()
+    needs: [build-rust]
+    steps:
+      - name: Check all platform builds succeeded
+        run: |
+          if [[ "${{ needs.build-rust.result }}" != "success" ]]; then
+            echo "::error::One or more platform builds failed: ${{ needs.build-rust.result }}"
+            exit 1
+          fi
+          echo "All 5 platform builds succeeded."
