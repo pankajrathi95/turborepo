@@ -218,8 +218,9 @@ jobs:
           fi
 
   rust_test_macos:
-    runs-on: macos-latest-xlarge
-    timeout-minutes: 15
+    # macos-latest-xlarge is a Vercel/org larger runner; use standard runner on forks
+    runs-on: macos-latest
+    timeout-minutes: 30
     env:
       CARGO_INCREMENTAL: 0
     needs:
@@ -258,8 +259,9 @@ jobs:
         shell: bash
 
   rust_test_windows:
-    runs-on: windows-latest-8-core-oss
-    timeout-minutes: 15
+    # windows-latest-8-core-oss is a Vercel/org larger runner; use standard runner on forks
+    runs-on: windows-latest
+    timeout-minutes: 45
     env:
       CARGO_INCREMENTAL: 0
     needs:
@@ -334,8 +336,9 @@ jobs:
           INSTA_WORKSPACE_ROOT: ${{ github.workspace }}
 
   rust_test_ubuntu:
-    runs-on: ubuntu-latest-8-core-oss
-    timeout-minutes: 15
+    # ubuntu-latest-8-core-oss is a Vercel/org larger runner; use standard runner on forks
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
     env:
       CARGO_INCREMENTAL: 0
     needs:
